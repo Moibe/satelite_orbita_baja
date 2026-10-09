@@ -3,12 +3,12 @@
 Ventanita flotante que escucha una junta (Teams u otra) y, sin que se lo pidas, te muestra una explicación breve de los conceptos técnicos que van saliendo ("microservicios", "API gateway"…).
 
 ```
-audio del sistema → Deepgram (STT streaming, es) → Claude Haiku (¿qué explicar?) → tarjetas en una ventana flotante
+audio del sistema → Deepgram (STT streaming, es) → OpenAI (¿qué explicar?) → tarjetas en una ventana flotante
 ```
 
 ## Uso
 
-1. `cp .env.example .env` y llena `DEEPGRAM_API_KEY` y `ANTHROPIC_API_KEY`.
+1. `cp .env.example .env` y llena `DEEPGRAM_API_KEY` y `OPENAI_API_KEY`.
 2. `npm install && npm run dev` → <http://localhost:4500> (Chrome o Edge).
 3. **Iniciar y compartir audio**: elige *Pantalla completa → Compartir audio del sistema* (o la pestaña de Teams con audio). Solo se captura lo que sale por tus bocinas.
 4. La ventanita flota con la Document Picture-in-Picture API (si no se abre sola, botón **Flotar ventanita**).

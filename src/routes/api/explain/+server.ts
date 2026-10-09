@@ -1,5 +1,4 @@
 import { json, error } from '@sveltejs/kit';
-import Anthropic from '@anthropic-ai/sdk';
 import { env } from '$env/dynamic/private';
 
 const SYSTEM = `Eres un "satélite" que acompaña en silencio a una persona durante una junta en español. Recibes lo último que se dijo (transcripción automática, puede traer errores de reconocimiento) y decides si vale la pena explicarle algún concepto para que no pierda el hilo.
@@ -9,19 +8,20 @@ NO expliques: palabras cotidianas, nombres de personas o empresas, conceptos de 
 Si la transcripción parece mal reconocida (ej. "micro servicios" / "mikroservicios"), normaliza el término.
 Prefiere no decir nada antes que ser ruidoso. Como máximo 2 conceptos por respuesta, normalmente 0 o 1.
 Cada explicación: 1 o 2 frases cortas (máx. ~30 palabras), en español claro, lo que importa para entender la conversación, sin preámbulos.
-Responde siempre llamando a la herramienta "reportar".`;
+Responde solo con el JSON pedido; si no hay nada que explicar, "conceptos" va vacío.`;
 
-const TOOL: Anthropic.Tool = {
-	name: 'reportar',
-	description: 'Reporta los conceptos a explicar (lista vacía si no hay nada que valga la pena).',
-	input_schema: {
+const SCHEMA = {
+	name: 'conceptos',
+	strict: true,
+	schema: {
 		type: 'object',
+		additionalProperties: false,
 		properties: {
 			conceptos: {
 				type: 'array',
-				maxItems: 2,
 				items: {
 					type: 'object',
+					additionalProperties: false,
 					properties: {
 						termino: { type: 'string', description: 'Nombre corto del concepto' },
 						explicacion: { type: 'string' }
@@ -35,7 +35,7 @@ const TOOL: Anthropic.Tool = {
 };
 
 export async function POST({ request }) {
-	if (!env.ANTHROPIC_API_KEY) error(500, 'Falta ANTHROPIC_API_KEY en .env');
+	if (!env.OPENAI_API_KEY) error(500, 'Falta OPENAI_API_KEY en .env');
 
 	const { texto, contexto, perfil, yaExplicados } = (await request.json()) as {
 		texto: string;
@@ -45,26 +45,37 @@ export async function POST({ request }) {
 	};
 	if (!texto?.trim()) return json({ conceptos: [] });
 
-	const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
-	const msg = await client.messages.create({
-		model: env.EXPLAIN_MODEL || 'claude-haiku-5-5',
-		max_tokens: 400,
-		system: SYSTEM,
-		tools: [TOOL],
-		tool_choice: { type: 'tool', name: 'reportar' },
-		messages: [
-			{
-				role: 'user',
-				content:
-					`Perfil de la persona: ${perfil?.trim() || '(sin especificar)'}\n` +
-					`Ya explicados: ${yaExplicados?.join(', ') || '(ninguno)'}\n\n` +
-					`Contexto previo de la junta:\n${contexto?.trim() || '(inicio)'}\n\n` +
-					`LO ÚLTIMO QUE SE DIJO:\n${texto.trim()}`
-			}
-		]
+	const res = await fetch('https://api.openai.com/v1/chat/completions', {
+		method: 'POST',
+		headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			model: env.EXPLAIN_MODEL || 'gpt-4o-mini',
+			// Holgura por si EXPLAIN_MODEL es un modelo de razonamiento (gpt-5…), que gasta tokens pensando.
+			max_completion_tokens: 1500,
+			response_format: { type: 'json_schema', json_schema: SCHEMA },
+			messages: [
+				{ role: 'system', content: SYSTEM },
+				{
+					role: 'user',
+					content:
+						`Perfil de la persona: ${perfil?.trim() || '(sin especificar)'}\n` +
+						`Ya explicados: ${yaExplicados?.join(', ') || '(ninguno)'}\n\n` +
+						`Contexto previo de la junta:\n${contexto?.trim() || '(inicio)'}\n\n` +
+						`LO ÚLTIMO QUE SE DIJO:\n${texto.trim()}`
+				}
+			]
+		})
 	});
+	if (!res.ok) {
+		const body = await res.json().catch(() => null);
+		error(502, `OpenAI (${res.status}): ${body?.error?.message ?? 'error desconocido'}`);
+	}
 
-	const block = msg.content.find((b) => b.type === 'tool_use');
-	const conceptos = block && block.type === 'tool_use' ? (block.input as any).conceptos ?? [] : [];
-	return json({ conceptos });
+	const data = await res.json();
+	try {
+		const { conceptos } = JSON.parse(data.choices?.[0]?.message?.content ?? '{}');
+		return json({ conceptos: Array.isArray(conceptos) ? conceptos.slice(0, 2) : [] });
+	} catch {
+		return json({ conceptos: [] });
+	}
 }
