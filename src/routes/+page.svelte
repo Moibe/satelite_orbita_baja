@@ -106,7 +106,15 @@
 			<div class="bar">
 				<span class="dot" class:on={live} class:busy={session.thinking}></span>
 				<span class="state">
-					{live ? (session.thinking ? 'Pensando…' : 'Escuchando') : session.status === 'connecting' ? 'Conectando…' : 'En pausa'}
+					{session.reconnecting
+						? 'Reconectando…'
+						: live
+							? session.thinking
+								? 'Pensando…'
+								: 'Escuchando'
+							: session.status === 'connecting'
+								? 'Conectando…'
+								: 'En pausa'}
 				</span>
 				{#if session.usingBackup}<span class="backup" title="La llave principal falló; usando la de respaldo">respaldo</span>{/if}
 			</div>

@@ -13,7 +13,15 @@ export async function POST() {
 		},
 		body: JSON.stringify({ ttl_seconds: 120 })
 	});
-	if (!res.ok) error(502, `Deepgram rechazó la key (${res.status}): ${await res.text()}`);
+	if (!res.ok) {
+		// 403 = la key sirve para transcribir pero no para emitir tokens: le falta rol.
+		if (res.status === 403)
+			error(
+				502,
+				'Tu DEEPGRAM_API_KEY no tiene permiso para generar tokens. En console.deepgram.com crea una key nueva con rol "Member" o superior y reemplázala en .env.'
+			);
+		error(502, `Deepgram rechazó la key (${res.status}): ${await res.text()}`);
+	}
 
 	const { access_token } = await res.json();
 	return json({ token: access_token });

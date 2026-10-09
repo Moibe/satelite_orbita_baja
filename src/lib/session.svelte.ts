@@ -28,6 +28,8 @@ class Session {
 	thinking = $state(false);
 	/** true si la última explicación salió con la llave de respaldo (personal). */
 	usingBackup = $state(false);
+	/** true mientras se está recuperando de una caída de la conexión. */
+	reconnecting = $state(false);
 	perfil = $state(read(PROFILE_KEY));
 
 	#ws: WebSocket | null = null;
@@ -38,6 +40,7 @@ class Session {
 	#lastCall = 0;
 	#seen = new Set<string>();
 	#nextId = 1;
+	#stopping = false;
 
 	savePerfil() {
 		try {
@@ -72,11 +75,8 @@ class Session {
 			this.#stream = stream;
 			stream.getAudioTracks()[0].addEventListener('ended', () => this.stop());
 
-			const res = await fetch('/api/stt-token', { method: 'POST' });
-			if (!res.ok) throw new Error(await errText(res));
-			const { token } = await res.json();
-
-			await this.#openSocket(token);
+			this.#stopping = false;
+			await this.#openSocket(await this.#token());
 			await this.#startAudio(stream);
 			this.status = 'listening';
 		} catch (e) {
@@ -84,7 +84,15 @@ class Session {
 		}
 	}
 
+	async #token() {
+		const res = await fetch('/api/stt-token', { method: 'POST' });
+		if (!res.ok) throw new Error(await errText(res));
+		const { token } = await res.json();
+		return token as string;
+	}
+
 	stop() {
+		this.#stopping = true;
 		this.#ws?.close();
 		this.#ws = null;
 		this.#ctx?.close().catch(() => {});
@@ -110,6 +118,24 @@ class Session {
 		this.status = 'error';
 	}
 
+	/** Reabre el socket con un token nuevo; el audio sigue capturándose mientras tanto. */
+	async #reconnect() {
+		this.reconnecting = true;
+		for (let intento = 1; intento <= 5; intento++) {
+			await new Promise((r) => setTimeout(r, Math.min(1000 * 2 ** (intento - 1), 10_000)));
+			if (this.#stopping || this.status !== 'listening') break;
+			try {
+				await this.#openSocket(await this.#token());
+				this.reconnecting = false;
+				return;
+			} catch {
+				// siguiente intento
+			}
+		}
+		this.reconnecting = false;
+		if (!this.#stopping) this.#fail('Se perdió la conexión con Deepgram y no se pudo restablecer.');
+	}
+
 	#openSocket(token: string) {
 		return new Promise<void>((resolve, reject) => {
 			const ws = new WebSocket(DG_URL, ['bearer', token]);
@@ -117,7 +143,8 @@ class Session {
 			ws.onopen = () => resolve();
 			ws.onerror = () => reject(new Error('No se pudo abrir la conexión con Deepgram.'));
 			ws.onclose = () => {
-				if (this.#ws === ws && this.status === 'listening') this.#fail('Se cerró la conexión con Deepgram.');
+				// Caída inesperada a media junta: se reconecta con un token nuevo sin perder el audio.
+				if (this.#ws === ws && !this.#stopping && this.status === 'listening') void this.#reconnect();
 			};
 			ws.onmessage = (ev) => {
 				const msg = JSON.parse(ev.data);
