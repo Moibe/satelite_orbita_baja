@@ -34,8 +34,20 @@ const SCHEMA = {
 	}
 };
 
+// Llave principal (CSI) y respaldo (personal). Si la principal falla, se intenta con la de respaldo.
+const KEYS = () =>
+	[
+		{ via: 'principal', key: env.OPENAI_API_KEY },
+		{ via: 'respaldo', key: env.OPENAI_API_KEY_RESPALDO }
+	].filter((k): k is { via: string; key: string } => !!k.key?.trim());
+
+// Una llave que falló se salta un rato para no pagar un intento fallido en cada consulta.
+const COOLDOWN_MS = 60_000;
+const downUntil = new Map<string, number>();
+
 export async function POST({ request }) {
-	if (!env.OPENAI_API_KEY) error(500, 'Falta OPENAI_API_KEY en .env');
+	const keys = KEYS();
+	if (!keys.length) error(500, 'Falta OPENAI_API_KEY en .env');
 
 	const { texto, contexto, perfil, yaExplicados } = (await request.json()) as {
 		texto: string;
@@ -45,37 +57,66 @@ export async function POST({ request }) {
 	};
 	if (!texto?.trim()) return json({ conceptos: [] });
 
-	const res = await fetch('https://api.openai.com/v1/chat/completions', {
-		method: 'POST',
-		headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
-		body: JSON.stringify({
-			model: env.EXPLAIN_MODEL || 'gpt-4o-mini',
-			// Holgura por si EXPLAIN_MODEL es un modelo de razonamiento (gpt-5…), que gasta tokens pensando.
-			max_completion_tokens: 1500,
-			response_format: { type: 'json_schema', json_schema: SCHEMA },
-			messages: [
-				{ role: 'system', content: SYSTEM },
-				{
-					role: 'user',
-					content:
-						`Perfil de la persona: ${perfil?.trim() || '(sin especificar)'}\n` +
-						`Ya explicados: ${yaExplicados?.join(', ') || '(ninguno)'}\n\n` +
-						`Contexto previo de la junta:\n${contexto?.trim() || '(inicio)'}\n\n` +
-						`LO ÚLTIMO QUE SE DIJO:\n${texto.trim()}`
-				}
-			]
-		})
+	const body = JSON.stringify({
+		model: env.EXPLAIN_MODEL || 'gpt-4o-mini',
+		// Holgura por si EXPLAIN_MODEL es un modelo de razonamiento (gpt-5…), que gasta tokens pensando.
+		max_completion_tokens: 1500,
+		response_format: { type: 'json_schema', json_schema: SCHEMA },
+		messages: [
+			{ role: 'system', content: SYSTEM },
+			{
+				role: 'user',
+				content:
+					`Perfil de la persona: ${perfil?.trim() || '(sin especificar)'}\n` +
+					`Ya explicados: ${yaExplicados?.join(', ') || '(ninguno)'}\n\n` +
+					`Contexto previo de la junta:\n${contexto?.trim() || '(inicio)'}\n\n` +
+					`LO ÚLTIMO QUE SE DIJO:\n${texto.trim()}`
+			}
+		]
 	});
-	if (!res.ok) {
-		const body = await res.json().catch(() => null);
-		error(502, `OpenAI (${res.status}): ${body?.error?.message ?? 'error desconocido'}`);
+
+	// Las llaves en cooldown van al final: se usan solo si ya no queda otra.
+	const now = Date.now();
+	const ordered = [
+		...keys.filter((k) => (downUntil.get(k.via) ?? 0) <= now),
+		...keys.filter((k) => (downUntil.get(k.via) ?? 0) > now)
+	];
+
+	const failures: string[] = [];
+	for (const { via, key } of ordered) {
+		let res: Response;
+		try {
+			res = await fetch(`${env.OPENAI_BASE_URL || 'https://api.openai.com/v1'}/chat/completions`, {
+				method: 'POST',
+				headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+				body
+			});
+		} catch (e) {
+			downUntil.set(via, Date.now() + COOLDOWN_MS);
+			failures.push(`${via}: sin conexión`);
+			continue;
+		}
+
+		if (!res.ok) {
+			const err = await res.json().catch(() => null);
+			const msg = `${via}: OpenAI ${res.status} ${err?.error?.message ?? ''}`.trim();
+			// Un 400 es culpa de la petición, no de la llave: otra llave no lo arregla.
+			if (res.status === 400) error(502, msg);
+			downUntil.set(via, Date.now() + COOLDOWN_MS);
+			failures.push(msg);
+			console.warn(`[explain] ${msg}`);
+			continue;
+		}
+
+		downUntil.delete(via);
+		const data = await res.json();
+		try {
+			const { conceptos } = JSON.parse(data.choices?.[0]?.message?.content ?? '{}');
+			return json({ conceptos: Array.isArray(conceptos) ? conceptos.slice(0, 2) : [], via });
+		} catch {
+			return json({ conceptos: [], via });
+		}
 	}
 
-	const data = await res.json();
-	try {
-		const { conceptos } = JSON.parse(data.choices?.[0]?.message?.content ?? '{}');
-		return json({ conceptos: Array.isArray(conceptos) ? conceptos.slice(0, 2) : [] });
-	} catch {
-		return json({ conceptos: [] });
-	}
+	error(502, failures.join(' | '));
 }

@@ -26,6 +26,8 @@ class Session {
 	lines = $state<string[]>([]);
 	cards = $state<Card[]>([]);
 	thinking = $state(false);
+	/** true si la última explicación salió con la llave de respaldo (personal). */
+	usingBackup = $state(false);
 	perfil = $state(read(PROFILE_KEY));
 
 	#ws: WebSocket | null = null;
@@ -172,7 +174,11 @@ class Session {
 				})
 			});
 			if (!res.ok) throw new Error(await errText(res));
-			const { conceptos } = (await res.json()) as { conceptos: { termino: string; explicacion: string }[] };
+			const { conceptos, via } = (await res.json()) as {
+				conceptos: { termino: string; explicacion: string }[];
+				via?: string;
+			};
+			this.usingBackup = via === 'respaldo';
 			for (const c of conceptos) {
 				const key = c.termino.trim().toLowerCase();
 				if (!key || this.#seen.has(key)) continue;

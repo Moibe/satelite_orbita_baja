@@ -108,6 +108,7 @@
 				<span class="state">
 					{live ? (session.thinking ? 'Pensando…' : 'Escuchando') : session.status === 'connecting' ? 'Conectando…' : 'En pausa'}
 				</span>
+				{#if session.usingBackup}<span class="backup" title="La llave principal falló; usando la de respaldo">respaldo</span>{/if}
 			</div>
 
 			<div class="cards">
@@ -268,6 +269,14 @@
 		gap: 8px;
 		color: var(--dim);
 		font-size: 0.8rem;
+	}
+	.backup {
+		margin-left: auto;
+		padding: 1px 8px;
+		border-radius: 999px;
+		border: 1px solid #e0b050;
+		color: #e0b050;
+		font-size: 0.7rem;
 	}
 	.dot {
 		width: 9px;

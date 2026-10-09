@@ -8,7 +8,7 @@ audio del sistema → Deepgram (STT streaming, es) → OpenAI (¿qué explicar?)
 
 ## Uso
 
-1. `cp .env.example .env` y llena `DEEPGRAM_API_KEY` y `OPENAI_API_KEY`.
+1. `cp .env.example .env` y llena `DEEPGRAM_API_KEY`, `OPENAI_API_KEY` (principal) y, opcional, `OPENAI_API_KEY_RESPALDO`: si la principal falla se usa la de respaldo y la ventanita muestra "respaldo".
 2. `npm install && npm run dev` → <http://localhost:4500> (Chrome o Edge).
 3. **Iniciar y compartir audio**: elige *Pantalla completa → Compartir audio del sistema* (o la pestaña de Teams con audio). Solo se captura lo que sale por tus bocinas.
 4. La ventanita flota con la Document Picture-in-Picture API (si no se abre sola, botón **Flotar ventanita**).
