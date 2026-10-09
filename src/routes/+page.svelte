@@ -87,7 +87,7 @@
 	{/if}
 
 	<p class="hint">
-		En el selector elige <b>Pantalla completa → Compartir audio del sistema</b> (o la pestaña de Teams con
+		En el selector elige <b>Pantalla completa</b> y deja marcado <b>Compartir audio del sistema</b> (las <i>ventanas</i> no traen audio; o elige la pestaña de Teams con
 		“Compartir audio de la pestaña”). Solo se oye lo que sale por tus bocinas, es decir, los demás.
 	</p>
 

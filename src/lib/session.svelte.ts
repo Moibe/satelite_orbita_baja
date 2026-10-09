@@ -49,11 +49,21 @@ class Session {
 		this.status = 'connecting';
 		try {
 			// Debe ir primero: requiere el gesto del usuario.
-			const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+			const stream = await navigator.mediaDevices.getDisplayMedia({
+				video: true,
+				audio: true,
+				// Pistas para que Chrome/Edge sugieran pantalla completa y dejen la casilla de audio del sistema.
+				systemAudio: 'include',
+				selfBrowserSurface: 'exclude',
+				monitorTypeSurfaces: 'include'
+			} as DisplayMediaStreamOptions);
 			if (!stream.getAudioTracks().length) {
+				const surface = (stream.getVideoTracks()[0]?.getSettings() as { displaySurface?: string }).displaySurface;
 				stream.getTracks().forEach((t) => t.stop());
 				throw new Error(
-					'No llegó audio. En el selector marca "Compartir audio del sistema" (pantalla completa) o "Compartir audio de la pestaña".'
+					surface === 'window'
+						? 'Elegiste una ventana: las ventanas no traen audio. Vuelve a intentar y elige "Pantalla completa" (con Compartir audio del sistema) o la pestaña de Teams.'
+						: 'No llegó audio. Abajo del selector marca "Compartir también el audio del sistema" (pantalla completa) o "Compartir audio de la pestaña".'
 				);
 			}
 			stream.getVideoTracks().forEach((t) => t.stop());
