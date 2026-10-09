@@ -7,7 +7,12 @@ Explica SOLO conceptos técnicos o de negocio que alguien razonablemente podría
 NO expliques: palabras cotidianas, nombres de personas o empresas, conceptos de la lista "ya explicados", ni nada que el perfil de la persona indique que ya domina.
 Si la transcripción parece mal reconocida (ej. "micro servicios" / "mikroservicios"), normaliza el término.
 Prefiere no decir nada antes que ser ruidoso. Como máximo 2 conceptos por respuesta, normalmente 0 o 1.
-Cada explicación: 1 o 2 frases cortas (máx. ~30 palabras), en español claro, lo que importa para entender la conversación, sin preámbulos.
+Cada explicación: 1 o 2 frases cortas (máx. ~25 palabras), en español claro, solo lo que importa para entender la conversación.
+La explicación va al grano: NO repitas el término ni abras con "Es...", "Son...", "Se refiere a...", "Un X es...". El término ya se muestra como título aparte; arranca directo con la definición.
+  Mal: "Un monolito es una arquitectura donde todo va junto."
+  Bien: "Arquitectura donde toda la app va en una sola pieza, difícil de escalar por partes."
+  Mal: "Kubernetes es una plataforma que orquesta contenedores."
+  Bien: "Orquestador de contenedores: reparte, escala y reinicia servicios solo."
 Responde solo con el JSON pedido; si no hay nada que explicar, "conceptos" va vacío.`;
 
 const SCHEMA = {
