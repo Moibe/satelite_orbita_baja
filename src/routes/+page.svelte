@@ -122,7 +122,8 @@
 			<div class="cards">
 				{#each session.cards as c (c.id)}
 					<article class="card">
-						<button class="x" aria-label="Descartar" onclick={() => session.dismiss(c.id)}>×</button>
+						<!-- onclickcapture (no delegado): Svelte delega onclick al documento principal y no llegaría desde la ventana flotante. -->
+						<button class="x" aria-label="Descartar" onclickcapture={() => session.dismiss(c.id)}>×</button>
 						<h3>{c.term}</h3>
 						<p>{c.text}</p>
 						<time>{ago(c.at, tick)}</time>
