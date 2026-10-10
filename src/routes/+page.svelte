@@ -288,6 +288,40 @@
 	:global(body.pip) .sat {
 		height: 100%;
 		border-radius: 12px;
+		gap: 8px;
+		padding: 10px;
+	}
+	/* Tipografía compacta en la ventana flotante: caben más tarjetas sin hacer scroll. */
+	:global(body.pip) .bar {
+		font-size: 0.72rem;
+	}
+	:global(body.pip) .cards {
+		gap: 6px;
+	}
+	:global(body.pip) .card {
+		padding: 7px 24px 6px 10px;
+		border-radius: 10px;
+	}
+	:global(body.pip) .card h3 {
+		font-size: 0.8rem;
+		margin-bottom: 1px;
+	}
+	:global(body.pip) .card p {
+		font-size: 0.75rem;
+		line-height: 1.35;
+	}
+	:global(body.pip) .card time {
+		font-size: 0.62rem;
+		margin-top: 2px;
+	}
+	:global(body.pip) .x {
+		top: 2px;
+		right: 4px;
+		font-size: 1rem;
+	}
+	:global(body.pip) .empty,
+	:global(body.pip) .interim {
+		font-size: 0.72rem;
 	}
 	.bar {
 		display: flex;
