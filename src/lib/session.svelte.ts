@@ -30,6 +30,8 @@ class Session {
 	usingBackup = $state(false);
 	/** true mientras se está recuperando de una caída de la conexión. */
 	reconnecting = $state(false);
+	/** Resultado de la última consulta cuando no generó tarjeta nueva (se muestra en "pruebas"). */
+	note = $state('');
 	perfil = $state(read(PROFILE_KEY));
 
 	#ws: WebSocket | null = null;
@@ -41,6 +43,7 @@ class Session {
 	#seen = new Set<string>();
 	#nextId = 1;
 	#stopping = false;
+	#flush = false;
 
 	savePerfil() {
 		try {
@@ -105,7 +108,8 @@ class Session {
 
 	/** Entrada manual de texto (para probar sin audio). */
 	feed(text: string) {
-		this.#onFinal(text);
+		this.error = '';
+		this.#onFinal(text, true);
 	}
 
 	dismiss(id: number) {
@@ -171,9 +175,15 @@ class Session {
 		ctx.createMediaStreamSource(stream).connect(node);
 	}
 
-	#onFinal(text: string) {
+	/** `force`: consulta ya, sin esperar el texto mínimo ni el intervalo (lo usan las pruebas manuales). */
+	#onFinal(text: string, force = false) {
 		this.lines = [...this.lines, text].slice(-30);
 		this.#pending += (this.#pending ? ' ' : '') + text;
+		if (force) {
+			this.#flush = true;
+			if (!this.thinking) void this.#explain();
+			return;
+		}
 		// Se dispara por eventos del socket (no por timers) para que el throttling de pestañas en segundo plano no lo afecte.
 		if (
 			this.#pending.length >= MIN_CHARS &&
@@ -187,8 +197,10 @@ class Session {
 	async #explain() {
 		const texto = this.#pending;
 		this.#pending = '';
+		this.#flush = false;
 		this.#lastCall = Date.now();
 		this.thinking = true;
+		this.note = '';
 		try {
 			const res = await fetch('/api/explain', {
 				method: 'POST',
@@ -206,20 +218,29 @@ class Session {
 				via?: string;
 			};
 			this.usingBackup = via === 'respaldo';
+			let nuevos = 0;
 			for (const c of conceptos) {
 				const key = c.termino.trim().toLowerCase();
-				if (!key || this.#seen.has(key)) continue;
+				if (!key) continue;
+				if (this.#seen.has(key)) {
+					this.note = `"${c.termino.trim()}" ya se explicó en esta sesión.`;
+					continue;
+				}
 				this.#seen.add(key);
+				nuevos++;
 				this.cards = [
 					{ id: this.#nextId++, term: c.termino.trim(), text: c.explicacion.trim(), at: Date.now() },
 					...this.cards
 				].slice(0, MAX_CARDS);
 			}
+			if (!nuevos && !this.note) this.note = 'No encontré nada que valga la pena explicar en esa frase.';
 		} catch (e) {
 			this.error = e instanceof Error ? e.message : String(e);
 		} finally {
 			this.#history += ' ' + texto;
 			this.thinking = false;
+			// Si mientras tanto llegó otra prueba manual, se atiende ahora.
+			if (this.#flush && this.#pending) void this.#explain();
 		}
 	}
 }

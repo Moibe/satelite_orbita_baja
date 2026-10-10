@@ -108,13 +108,13 @@
 				<span class="state">
 					{session.reconnecting
 						? 'Reconectando…'
-						: live
-							? session.thinking
-								? 'Pensando…'
-								: 'Escuchando'
-							: session.status === 'connecting'
-								? 'Conectando…'
-								: 'En pausa'}
+						: session.thinking
+							? 'Pensando…'
+							: live
+								? 'Escuchando'
+								: session.status === 'connecting'
+									? 'Conectando…'
+									: 'En pausa'}
 				</span>
 				{#if session.usingBackup}<span class="backup" title="La llave principal falló; usando la de respaldo">respaldo</span>{/if}
 			</div>
@@ -140,13 +140,22 @@
 
 	<details>
 		<summary>Transcripción y pruebas</summary>
+		<p class="how">
+			Lo que escribas aquí se trata como si se hubiera dicho en la junta y se consulta al instante; la
+			tarjeta aparece en la ventanita de arriba. Con audio real se espera a juntar unas 20 palabras.
+		</p>
 		<div class="transcript">
 			{#each session.lines.slice(-10) as l}<p>{l}</p>{/each}
 		</div>
 		<form onsubmit={sendManual}>
 			<input bind:value={manual} placeholder="Escribe una frase de prueba, ej. 'migramos a microservicios con Kubernetes y un API gateway…'" />
-			<button>Probar</button>
+			<button disabled={session.thinking}>{session.thinking ? 'Pensando…' : 'Probar'}</button>
 		</form>
+		{#if session.error}
+			<p class="err small">{session.error}</p>
+		{:else if session.note && !session.thinking}
+			<p class="how">{session.note}</p>
+		{/if}
 	</details>
 </main>
 
@@ -250,6 +259,14 @@
 	details {
 		color: var(--dim);
 		font-size: 0.88rem;
+	}
+	.how {
+		margin: 8px 0;
+		font-size: 0.82rem;
+	}
+	.err.small {
+		margin-top: 8px;
+		font-size: 0.85rem;
 	}
 	.transcript p {
 		margin: 4px 0;
