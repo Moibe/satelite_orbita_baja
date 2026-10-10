@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { session } from '$lib/session.svelte';
+	import UsoPill from '$lib/UsoPill.svelte';
+	import { usd } from '$lib/uso';
 
 	let panel: HTMLElement;
 	let host: HTMLElement;
@@ -64,8 +66,11 @@
 
 <main>
 	<header>
-		<h1>🛰️ Satélite de órbita baja</h1>
-		<p>Escucha la junta y te explica en silencio los conceptos que van saliendo.</p>
+		<div>
+			<h1>🛰️ Satélite de órbita baja</h1>
+			<p>Escucha la junta y te explica en silencio los conceptos que van saliendo.</p>
+		</div>
+		<UsoPill />
 	</header>
 
 	<section class="controls">
@@ -136,6 +141,15 @@
 			{#if session.interim}
 				<p class="interim">{session.interim}</p>
 			{/if}
+
+			{#if session.uso}
+				{@const h = session.uso.hoy}
+				<p class="gasto" title="Gasto estimado de hoy, separado por servicio">
+					<span class="total">Hoy {usd(h.costo_usd)}</span>
+					<span>LLM {usd(h.openai.costo_usd)}</span>
+					<span>Deepgram {usd(h.deepgram.costo_usd)}</span>
+				</p>
+			{/if}
 		</aside>
 	</div>
 
@@ -161,22 +175,10 @@
 </main>
 
 <style>
-	:global(:root) {
-		--bg: #0b1020;
-		--card: rgba(255, 255, 255, 0.07);
-		--line: rgba(255, 255, 255, 0.14);
-		--fg: #e8ecf6;
-		--dim: #8f9ab8;
-		--accent: #6aa6ff;
-	}
-	:global(body) {
-		margin: 0;
-		font: 15px/1.45 system-ui, sans-serif;
-		color: var(--fg);
-		background: linear-gradient(135deg, #0b1020, #14224a);
-		min-height: 100vh;
-	}
+	/* Altura fija: así .sat (height:100%) se resuelve, las tarjetas hacen scroll por dentro
+	   y el pie de gasto queda siempre a la vista, sin importar cuántas tarjetas haya. */
 	:global(body.pip) {
+		height: 100vh;
 		padding: 10px;
 		box-sizing: border-box;
 	}
@@ -190,6 +192,17 @@
 	h1 {
 		margin: 0 0 4px;
 		font-size: 1.5rem;
+	}
+	header {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 12px;
+		flex-wrap: wrap;
+	}
+	header > div {
+		flex: 1 1 280px;
+		min-width: 0;
 	}
 	header p,
 	.hint {
@@ -323,12 +336,31 @@
 	:global(body.pip) .interim {
 		font-size: 0.72rem;
 	}
+	:global(body.pip) .gasto {
+		font-size: 0.68rem;
+		padding-top: 6px;
+	}
 	.bar {
 		display: flex;
 		align-items: center;
 		gap: 8px;
 		color: var(--dim);
 		font-size: 0.8rem;
+	}
+	.gasto {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 2px 12px;
+		margin: 0;
+		padding-top: 8px;
+		border-top: 1px solid var(--line);
+		font-size: 0.75rem;
+		color: var(--dim);
+		font-variant-numeric: tabular-nums;
+	}
+	.gasto .total {
+		color: var(--fg);
+		font-weight: 600;
 	}
 	.backup {
 		margin-left: auto;

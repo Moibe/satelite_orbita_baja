@@ -1,5 +1,6 @@
 import { json, error } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
+import { registrarOpenAI } from '$lib/server/uso';
 
 const SYSTEM = `Eres un "satélite" que acompaña en silencio a una persona durante una junta en español. Recibes lo último que se dijo (transcripción automática, puede traer errores de reconocimiento) y decides si vale la pena explicarle algún concepto para que no pierda el hilo.
 
@@ -115,6 +116,13 @@ export async function POST({ request }) {
 
 		downUntil.delete(via);
 		const data = await res.json();
+		// Se registra apenas responde OpenAI (aunque luego el JSON no se pueda leer): los tokens ya se cobraron.
+		await registrarOpenAI({
+			modelo: data.model ?? (env.EXPLAIN_MODEL || 'gpt-4o-mini'),
+			via,
+			input_tokens: data.usage?.prompt_tokens ?? 0,
+			output_tokens: data.usage?.completion_tokens ?? 0
+		});
 		try {
 			const { conceptos } = JSON.parse(data.choices?.[0]?.message?.content ?? '{}');
 			return json({ conceptos: Array.isArray(conceptos) ? conceptos.slice(0, 2) : [], via });

@@ -21,3 +21,13 @@ La sección "Transcripción y pruebas" permite meter una frase a mano para afina
 - `src/lib/session.svelte.ts`: cada cuánto se consulta (`MIN_CHARS`, `MIN_GAP_MS`) y cuántas tarjetas se conservan.
 
 Puerto 4500 (solo local). SvelteKit 2 porque SvelteKit 3 exige Node ≥ 22.17.
+
+## Gasto
+
+La píldora **Hoy · Mes · Total** (arriba a la derecha) y el pie de la ventanita ("Hoy $… · LLM $… · Deepgram $…") muestran el gasto estimado; al hacer clic en la píldora se abre el detalle (`/uso`) en otra pestaña, con una tabla que separa lo del LLM (OpenAI) de lo de Deepgram.
+
+- **OpenAI:** se guardan los tokens reales que devuelve cada llamada (`usage`) y el costo se calcula al leer con los precios de `.env`.
+- **Deepgram:** cobra por minuto de audio. El audio va directo del navegador a Deepgram, así que el navegador reporta al servidor cuántos segundos mandó (cada 30 s y al detener).
+- Los datos viven en `data/uso.jsonl` (una línea por consumo, fuera de git). Los días y el mes se cuentan en hora de CDMX. Con `USO_FILE` se cambia la ruta.
+- Es una **estimación**: no descuenta tokens cacheados ni créditos gratis, y los precios por defecto pueden quedar viejos (`PRECIO_*` en `.env`).
+

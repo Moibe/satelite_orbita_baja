@@ -1,3 +1,5 @@
+import type { Uso } from './uso';
+
 export type Card = { id: number; term: string; text: string; at: number };
 type Status = 'idle' | 'connecting' | 'listening' | 'error';
 
@@ -10,6 +12,9 @@ const MIN_CHARS = 140;
 const MIN_GAP_MS = 10_000;
 const MAX_CARDS = 8;
 const PROFILE_KEY = 'satelite:perfil';
+// El audio va a 16 kHz, PCM16 mono: 32 000 bytes por segundo. Cada 30 s de audio se reporta al servidor.
+const BYTES_POR_SEGUNDO = 32_000;
+const REPORTE_CADA_SEG = 30;
 
 function read(key: string) {
 	try {
@@ -33,6 +38,8 @@ class Session {
 	/** Resultado de la última consulta cuando no generó tarjeta nueva (se muestra en "pruebas"). */
 	note = $state('');
 	perfil = $state(read(PROFILE_KEY));
+	/** Gasto estimado (hoy / mes / total); null mientras no responde el servidor. */
+	uso = $state<Uso | null>(null);
 
 	#ws: WebSocket | null = null;
 	#ctx: AudioContext | null = null;
@@ -44,6 +51,51 @@ class Session {
 	#nextId = 1;
 	#stopping = false;
 	#flush = false;
+	/** Segundos de audio enviados a Deepgram que aún no se han reportado al monitor de gasto. */
+	#audioSeg = 0;
+	/** Tras un reporte fallido no se reintenta antes de este instante (ms), para no insistir en cada bloque de audio. */
+	#noReportarAntes = 0;
+
+	constructor() {
+		if (typeof window === 'undefined') return;
+		void this.refreshUso();
+		// Al cerrar la pestaña se reporta lo pendiente (fetch con keepalive sobrevive al cierre).
+		window.addEventListener('pagehide', () => void this.#reportarAudio(true));
+	}
+
+	async refreshUso() {
+		try {
+			const res = await fetch('/api/uso');
+			if (res.ok) this.uso = (await res.json()) as Uso;
+		} catch {
+			// es solo un indicador: no debe estorbar
+		}
+	}
+
+	/**
+	 * Reporta al monitor de gasto los segundos de audio enviados a Deepgram desde el último reporte.
+	 * `forzar` (al detener o cerrar la pestaña) ignora la espera tras un fallo: es la última oportunidad.
+	 */
+	async #reportarAudio(forzar = false) {
+		if (!forzar && Date.now() < this.#noReportarAntes) return;
+		const segundos = this.#audioSeg;
+		if (segundos < 0.5) return;
+		this.#audioSeg = 0;
+		try {
+			const res = await fetch('/api/uso', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ segundos }),
+				keepalive: true
+			});
+			if (!res.ok) throw new Error(String(res.status));
+			this.uso = (await res.json()) as Uso;
+			this.#noReportarAntes = 0;
+		} catch {
+			this.#audioSeg += segundos; // no se pierde: se reintenta más adelante
+			this.#noReportarAntes = Date.now() + REPORTE_CADA_SEG * 1000;
+		}
+	}
 
 	savePerfil() {
 		try {
@@ -96,6 +148,7 @@ class Session {
 
 	stop() {
 		this.#stopping = true;
+		void this.#reportarAudio(true);
 		this.#ws?.close();
 		this.#ws = null;
 		this.#ctx?.close().catch(() => {});
@@ -170,7 +223,11 @@ class Session {
 		await ctx.audioWorklet.addModule('/pcm-worklet.js');
 		const node = new AudioWorkletNode(ctx, 'pcm-worklet');
 		node.port.onmessage = (ev) => {
-			if (this.#ws?.readyState === WebSocket.OPEN) this.#ws.send(ev.data);
+			if (this.#ws?.readyState !== WebSocket.OPEN) return;
+			this.#ws.send(ev.data);
+			// Eventos del propio audio (no un timer), para que el throttling de pestañas en segundo plano no afecte el conteo.
+			this.#audioSeg += (ev.data as ArrayBuffer).byteLength / BYTES_POR_SEGUNDO;
+			if (this.#audioSeg >= REPORTE_CADA_SEG) void this.#reportarAudio();
 		};
 		ctx.createMediaStreamSource(stream).connect(node);
 	}
@@ -218,6 +275,7 @@ class Session {
 				via?: string;
 			};
 			this.usingBackup = via === 'respaldo';
+			void this.refreshUso();
 			let nuevos = 0;
 			for (const c of conceptos) {
 				const key = c.termino.trim().toLowerCase();
