@@ -1,11 +1,14 @@
 import { describir } from './errores';
+import { esIdioma, type Idioma } from './idioma';
 import type { Uso } from './uso';
 
 export type Card = { id: number; term: string; text: string; at: number };
 type Status = 'idle' | 'connecting' | 'listening' | 'error';
 
-const DG_URL =
-	'wss://api.deepgram.com/v1/listen?model=nova-3&language=es&encoding=linear16&sample_rate=16000' +
+// `language=multi` es el modo multilingüe de Nova-3 (español, inglés y otros, incluso mezclados en la misma
+// frase). Con un idioma fijo, el audio en otro idioma se transcribe a medias o se pierde.
+const dgUrl = (idioma: Idioma) =>
+	`wss://api.deepgram.com/v1/listen?model=nova-3&language=${idioma}&encoding=linear16&sample_rate=16000` +
 	'&channels=1&interim_results=true&smart_format=true&endpointing=400';
 
 // Cuándo mandar lo transcrito a explicar: suficiente texto nuevo y un mínimo entre llamadas.
@@ -13,6 +16,7 @@ const MIN_CHARS = 140;
 const MIN_GAP_MS = 10_000;
 const MAX_CARDS = 8;
 const PROFILE_KEY = 'satelite:perfil';
+const IDIOMA_KEY = 'satelite:idioma';
 // El audio va a 16 kHz, PCM16 mono: 32 000 bytes por segundo. Cada 30 s de audio se reporta al servidor.
 const BYTES_POR_SEGUNDO = 32_000;
 const REPORTE_CADA_SEG = 30;
@@ -23,6 +27,11 @@ function read(key: string) {
 	} catch {
 		return '';
 	}
+}
+
+function leerIdioma(): Idioma {
+	const v = read(IDIOMA_KEY);
+	return esIdioma(v) ? v : 'multi';
 }
 
 class Session {
@@ -39,6 +48,8 @@ class Session {
 	/** Resultado de la última consulta cuando no generó tarjeta nueva (se muestra en "pruebas"). */
 	note = $state('');
 	perfil = $state(read(PROFILE_KEY));
+	/** Idioma del audio. Se aplica al iniciar la sesión (no se puede cambiar con el socket abierto). */
+	idioma = $state<Idioma>(leerIdioma());
 	/** Gasto estimado (hoy / mes / total); null mientras no responde el servidor. */
 	uso = $state<Uso | null>(null);
 
@@ -54,8 +65,10 @@ class Session {
 	#flush = false;
 	/** Código y motivo con que Deepgram cerró el último socket (para explicar por qué se cayó). */
 	#ultimoCierre = '';
-	/** Segundos de audio enviados a Deepgram que aún no se han reportado al monitor de gasto. */
-	#audioSeg = 0;
+	/** Idioma con el que se abrió la sesión en curso (el reconectar usa el mismo). */
+	#idiomaSesion: Idioma = 'multi';
+	/** Segundos de audio enviados a Deepgram que aún no se han reportado al monitor de gasto, por idioma (el precio difiere). */
+	#audioSeg: Record<Idioma, number> = { multi: 0, es: 0, en: 0 };
 	/** Tras un reporte fallido no se reintenta antes de este instante (ms), para no insistir en cada bloque de audio. */
 	#noReportarAntes = 0;
 
@@ -81,23 +94,32 @@ class Session {
 	 */
 	async #reportarAudio(forzar = false) {
 		if (!forzar && Date.now() < this.#noReportarAntes) return;
-		const segundos = this.#audioSeg;
-		if (segundos < 0.5) return;
-		this.#audioSeg = 0;
-		try {
-			const res = await fetch('/api/uso', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ segundos }),
-				keepalive: true
-			});
-			if (!res.ok) throw new Error(String(res.status));
-			this.uso = (await res.json()) as Uso;
-			this.#noReportarAntes = 0;
-		} catch {
-			this.#audioSeg += segundos; // no se pierde: se reintenta más adelante
-			this.#noReportarAntes = Date.now() + REPORTE_CADA_SEG * 1000;
+		for (const idioma of Object.keys(this.#audioSeg) as Idioma[]) {
+			const segundos = this.#audioSeg[idioma];
+			if (segundos < 0.5) continue;
+			this.#audioSeg[idioma] = 0;
+			try {
+				const res = await fetch('/api/uso', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ segundos, idioma }),
+					keepalive: true
+				});
+				if (!res.ok) throw new Error(String(res.status));
+				this.uso = (await res.json()) as Uso;
+				this.#noReportarAntes = 0;
+			} catch {
+				this.#audioSeg[idioma] += segundos; // no se pierde: se reintenta más adelante
+				this.#noReportarAntes = Date.now() + REPORTE_CADA_SEG * 1000;
+			}
 		}
+	}
+
+	setIdioma(valor: Idioma) {
+		this.idioma = valor;
+		try {
+			localStorage.setItem(IDIOMA_KEY, valor);
+		} catch {}
 	}
 
 	savePerfil() {
@@ -134,6 +156,7 @@ class Session {
 			stream.getAudioTracks()[0].addEventListener('ended', () => this.stop());
 
 			this.#stopping = false;
+			this.#idiomaSesion = this.idioma;
 			await this.#openSocket(await this.#token());
 			await this.#startAudio(stream);
 			this.status = 'listening';
@@ -203,7 +226,7 @@ class Session {
 
 	#openSocket(token: string) {
 		return new Promise<void>((resolve, reject) => {
-			const ws = new WebSocket(DG_URL, ['bearer', token]);
+			const ws = new WebSocket(dgUrl(this.#idiomaSesion), ['bearer', token]);
 			this.#ws = ws;
 			ws.onopen = () => resolve();
 			ws.onerror = () =>
@@ -245,8 +268,9 @@ class Session {
 			if (this.#ws?.readyState !== WebSocket.OPEN) return;
 			this.#ws.send(ev.data);
 			// Eventos del propio audio (no un timer), para que el throttling de pestañas en segundo plano no afecte el conteo.
-			this.#audioSeg += (ev.data as ArrayBuffer).byteLength / BYTES_POR_SEGUNDO;
-			if (this.#audioSeg >= REPORTE_CADA_SEG) void this.#reportarAudio();
+			const idioma = this.#idiomaSesion;
+			this.#audioSeg[idioma] += (ev.data as ArrayBuffer).byteLength / BYTES_POR_SEGUNDO;
+			if (this.#audioSeg[idioma] >= REPORTE_CADA_SEG) void this.#reportarAudio();
 		};
 		ctx.createMediaStreamSource(stream).connect(node);
 	}

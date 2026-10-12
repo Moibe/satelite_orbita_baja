@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { session } from '$lib/session.svelte';
 	import UsoPill from '$lib/UsoPill.svelte';
+	import { IDIOMAS, type Idioma } from '$lib/idioma';
 	import { usd } from '$lib/uso';
 
 	let panel: HTMLElement;
@@ -10,6 +11,13 @@
 
 	const supportsPip = typeof window !== 'undefined' && 'documentPictureInPicture' in window;
 	const live = $derived(session.status === 'listening');
+	const ocupado = $derived(live || session.status === 'connecting');
+
+	const ayudaIdioma: Record<Idioma, string> = {
+		multi: 'Detecta español e inglés, incluso mezclados en la misma frase. Cuesta un poco más por minuto.',
+		es: 'Solo español: el audio en inglés se transcribe a medias o se pierde.',
+		en: 'Solo inglés: el audio en español se transcribe mal o se pierde.'
+	};
 
 	async function start() {
 		await session.start();
@@ -86,6 +94,18 @@
 			<span class="hint">Tu navegador no soporta ventana flotante; usa Chrome o Edge.</span>
 		{/if}
 	</section>
+
+	<label class="idioma">
+		Idioma del audio
+		<select
+			value={session.idioma}
+			onchange={(e) => session.setIdioma(e.currentTarget.value as Idioma)}
+			disabled={ocupado}
+		>
+			{#each IDIOMAS as o (o.valor)}<option value={o.valor}>{o.etiqueta}</option>{/each}
+		</select>
+		<span class="hint">{ayudaIdioma[session.idioma]}{ocupado ? ' Se aplica al iniciar una sesión nueva.' : ''}</span>
+	</label>
 
 	{#if session.error}
 		<p class="err">{session.error}</p>
@@ -246,6 +266,17 @@
 		border: 1px solid rgba(255, 90, 90, 0.4);
 		color: #ffb3b3;
 	}
+	.idioma {
+		display: grid;
+		gap: 6px;
+		color: var(--dim);
+		font-size: 0.85rem;
+		justify-items: start;
+	}
+	.idioma select:disabled {
+		opacity: 0.6;
+		cursor: not-allowed;
+	}
 	.perfil {
 		display: grid;
 		gap: 6px;
@@ -253,7 +284,8 @@
 		font-size: 0.85rem;
 	}
 	textarea,
-	input {
+	input,
+	select {
 		font: inherit;
 		color: var(--fg);
 		background: var(--card);
@@ -261,6 +293,8 @@
 		border-radius: 10px;
 		padding: 8px 10px;
 		resize: vertical;
+		/* popup de la lista del select en oscuro (si no, texto claro sobre fondo blanco) */
+		color-scheme: dark;
 	}
 	form {
 		display: flex;

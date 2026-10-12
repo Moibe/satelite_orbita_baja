@@ -13,6 +13,8 @@ audio del sistema → Deepgram (STT streaming, es) → OpenAI (¿qué explicar?)
 3. **Iniciar y compartir audio**: elige *Pantalla completa → Compartir audio del sistema* (o la pestaña de Teams con audio). Solo se captura lo que sale por tus bocinas.
 4. La ventanita flota con la Document Picture-in-Picture API (si no se abre sola, botón **Flotar ventanita**).
 
+**Idioma del audio** (selector en la página): *Español + inglés (automático)* es el modo por defecto y entiende ambos, incluso mezclados en la misma frase; *Solo español* y *Solo inglés* son un poco más baratos por minuto, pero el audio en el otro idioma se transcribe a medias o se pierde. Las explicaciones salen siempre en español. El cambio se aplica al iniciar una sesión nueva.
+
 La sección "Transcripción y pruebas" permite meter una frase a mano para afinar el prompt sin audio.
 
 ## Dónde ajustar

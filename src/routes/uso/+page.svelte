@@ -133,10 +133,12 @@
 			Costo <strong>estimado</strong>. OpenAI con los precios de <code>{uso.precios.modelo}</code>:
 			{usd(uso.precios.openai_input_usd_por_1m)} por 1M de tokens de entrada y
 			{usd(uso.precios.openai_output_usd_por_1m)} por 1M de salida. Deepgram:
-			{usd(uso.precios.deepgram_usd_por_min)} por minuto de audio, contado desde que se conecta,
+			{usd(uso.precios.deepgram_usd_por_min)} por minuto con un idioma fijo y
+			{usd(uso.precios.deepgram_multi_usd_por_min)} en modo español + inglés, contado desde que se conecta,
 			silencios incluidos. Si cambian los precios o el modelo, ajústalos en <code>.env</code>
 			(<code>PRECIO_INPUT_USD_POR_1M</code>, <code>PRECIO_OUTPUT_USD_POR_1M</code>,
-			<code>PRECIO_DEEPGRAM_USD_POR_MIN</code>). Los días y el mes se cuentan en hora de CDMX.
+			<code>PRECIO_DEEPGRAM_USD_POR_MIN</code>, <code>PRECIO_DEEPGRAM_MULTI_USD_POR_MIN</code>).
+			Los días y el mes se cuentan en hora de CDMX.
 		</p>
 	{/if}
 </section>

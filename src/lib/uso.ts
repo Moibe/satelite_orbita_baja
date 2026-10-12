@@ -19,7 +19,10 @@ export type Uso = {
 		modelo: string;
 		openai_input_usd_por_1m: number;
 		openai_output_usd_por_1m: number;
+		/** Deepgram con un idioma fijo (español o inglés). */
 		deepgram_usd_por_min: number;
+		/** Deepgram en modo multilingüe (español + inglés), un poco más caro por minuto. */
+		deepgram_multi_usd_por_min: number;
 	};
 	hoy: BloqueUso;
 	mes: BloqueUso;

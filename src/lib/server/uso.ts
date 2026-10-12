@@ -2,6 +2,7 @@ import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { env } from '$env/dynamic/private';
 import type { BloqueUso, Uso } from '$lib/uso';
+import type { Idioma } from '$lib/idioma';
 
 // Monitor de gasto, mismo patrón que nutricion_api: una fila por consumo con los tokens/segundos
 // crudos y la fecha en CDMX; el costo se calcula al leer, con precios configurables por env.
@@ -18,7 +19,8 @@ type Registro =
 			input_tokens: number;
 			output_tokens: number;
 	  }
-	| { ts: string; fecha: string; servicio: 'deepgram'; segundos: number };
+	// `idioma` falta en los registros anteriores al selector de idioma: se cobran como idioma fijo.
+	| { ts: string; fecha: string; servicio: 'deepgram'; segundos: number; idioma?: Idioma };
 
 const archivo = () => env.USO_FILE || 'data/uso.jsonl';
 
@@ -36,14 +38,16 @@ function num(valor: string | undefined, porDefecto: number) {
 	return Number.isFinite(n) && n >= 0 ? n : porDefecto;
 }
 
-// Estimación: los defaults son gpt-4o-mini y Deepgram Nova-3 en streaming (pay-as-you-go).
+// Estimación: los defaults son gpt-4o-mini y Deepgram Nova-3 en streaming (pay-as-you-go), con el
+// modo multilingüe ~20 % más caro que el de un solo idioma.
 // Si cambian los precios o EXPLAIN_MODEL, se ajustan por env.
 export function precios(): Uso['precios'] {
 	return {
 		modelo: env.EXPLAIN_MODEL || 'gpt-4o-mini',
 		openai_input_usd_por_1m: num(env.PRECIO_INPUT_USD_POR_1M, 0.15),
 		openai_output_usd_por_1m: num(env.PRECIO_OUTPUT_USD_POR_1M, 0.6),
-		deepgram_usd_por_min: num(env.PRECIO_DEEPGRAM_USD_POR_MIN, 0.0077)
+		deepgram_usd_por_min: num(env.PRECIO_DEEPGRAM_USD_POR_MIN, 0.0077),
+		deepgram_multi_usd_por_min: num(env.PRECIO_DEEPGRAM_MULTI_USD_POR_MIN, 0.0092)
 	};
 }
 
@@ -71,9 +75,9 @@ export function registrarOpenAI(x: { modelo: string; via: string; input_tokens: 
 	});
 }
 
-export function registrarDeepgram(segundos: number) {
+export function registrarDeepgram(segundos: number, idioma: Idioma) {
 	const ahora = new Date();
-	return agrega({ ts: ahora.toISOString(), fecha: hoyCdmx(ahora), servicio: 'deepgram', segundos });
+	return agrega({ ts: ahora.toISOString(), fecha: hoyCdmx(ahora), servicio: 'deepgram', segundos, idioma });
 }
 
 const vacio = (): BloqueUso => ({
@@ -126,7 +130,8 @@ export async function resumen(): Promise<Uso> {
 				if (r.via === 'respaldo') b.openai.costo_respaldo_usd += costo;
 			}
 		} else if (r.servicio === 'deepgram') {
-			const costo = (r.segundos / 60) * p.deepgram_usd_por_min;
+			const tarifa = r.idioma === 'multi' ? p.deepgram_multi_usd_por_min : p.deepgram_usd_por_min;
+			const costo = (r.segundos / 60) * tarifa;
 			for (const b of bloques) {
 				b.deepgram.segundos += r.segundos;
 				b.deepgram.costo_usd += costo;
