@@ -1,3 +1,4 @@
+import { describir } from './errores';
 import type { Uso } from './uso';
 
 export type Card = { id: number; term: string; text: string; at: number };
@@ -51,6 +52,8 @@ class Session {
 	#nextId = 1;
 	#stopping = false;
 	#flush = false;
+	/** Código y motivo con que Deepgram cerró el último socket (para explicar por qué se cayó). */
+	#ultimoCierre = '';
 	/** Segundos de audio enviados a Deepgram que aún no se han reportado al monitor de gasto. */
 	#audioSeg = 0;
 	/** Tras un reporte fallido no se reintenta antes de este instante (ms), para no insistir en cada bloque de audio. */
@@ -135,7 +138,7 @@ class Session {
 			await this.#startAudio(stream);
 			this.status = 'listening';
 		} catch (e) {
-			this.#fail(e instanceof Error ? e.message : String(e));
+			this.#fail(describir(e));
 		}
 	}
 
@@ -190,7 +193,12 @@ class Session {
 			}
 		}
 		this.reconnecting = false;
-		if (!this.#stopping) this.#fail('Se perdió la conexión con Deepgram y no se pudo restablecer.');
+		if (!this.#stopping)
+			this.#fail(
+				'Se perdió la conexión de audio con Deepgram y no se pudo restablecer tras 5 intentos' +
+					(this.#ultimoCierre ? ` (último cierre: ${this.#ultimoCierre})` : '') +
+					'. Revisa tu internet o VPN y pulsa Iniciar de nuevo.'
+			);
 	}
 
 	#openSocket(token: string) {
@@ -198,8 +206,15 @@ class Session {
 			const ws = new WebSocket(DG_URL, ['bearer', token]);
 			this.#ws = ws;
 			ws.onopen = () => resolve();
-			ws.onerror = () => reject(new Error('No se pudo abrir la conexión con Deepgram.'));
-			ws.onclose = () => {
+			ws.onerror = () =>
+				reject(
+					new Error(
+						'No se pudo abrir la conexión de audio con Deepgram (wss://api.deepgram.com). El navegador no da más detalle; ' +
+							'suele ser internet, VPN o proxy bloqueando WebSockets, o la cuenta de Deepgram sin saldo.'
+					)
+				);
+			ws.onclose = (ev) => {
+				this.#ultimoCierre = ev.code ? `código ${ev.code}${ev.reason ? `: ${ev.reason}` : ''}` : '';
 				// Caída inesperada a media junta: se reconecta con un token nuevo sin perder el audio.
 				if (this.#ws === ws && !this.#stopping && this.status === 'listening') void this.#reconnect();
 			};
@@ -220,7 +235,11 @@ class Session {
 	async #startAudio(stream: MediaStream) {
 		const ctx = new AudioContext({ sampleRate: 16000 });
 		this.#ctx = ctx;
-		await ctx.audioWorklet.addModule('/pcm-worklet.js');
+		try {
+			await ctx.audioWorklet.addModule('/pcm-worklet.js');
+		} catch (e) {
+			throw new Error(`No se pudo cargar el procesador de audio (/pcm-worklet.js): ${describir(e)}`);
+		}
 		const node = new AudioWorkletNode(ctx, 'pcm-worklet');
 		node.port.onmessage = (ev) => {
 			if (this.#ws?.readyState !== WebSocket.OPEN) return;
@@ -293,7 +312,7 @@ class Session {
 			}
 			if (!nuevos && !this.note) this.note = 'No encontré nada que valga la pena explicar en esa frase.';
 		} catch (e) {
-			this.error = e instanceof Error ? e.message : String(e);
+			this.error = describir(e);
 		} finally {
 			this.#history += ' ' + texto;
 			this.thinking = false;
@@ -308,7 +327,7 @@ async function errText(res: Response) {
 		const j = await res.json();
 		return j.message ?? JSON.stringify(j);
 	} catch {
-		return `Error ${res.status}`;
+		return `El servidor local respondió ${res.status}${res.statusText ? ` ${res.statusText}` : ''} sin detalle.`;
 	}
 }
 

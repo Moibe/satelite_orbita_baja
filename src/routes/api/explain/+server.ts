@@ -1,6 +1,7 @@
 import { json, error } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { registrarOpenAI } from '$lib/server/uso';
+import { causaDeRed, pistaHttp } from '$lib/server/errores';
 
 const SYSTEM = `Eres un "satélite" que acompaña en silencio a una persona durante una junta en español. Recibes lo último que se dijo (transcripción automática, puede traer errores de reconocimiento) y decides si vale la pena explicarle algún concepto para que no pierda el hilo.
 
@@ -51,16 +52,20 @@ const KEYS = () =>
 const COOLDOWN_MS = 60_000;
 const downUntil = new Map<string, number>();
 
+const ETIQUETA: Record<string, string> = { principal: 'llave principal', respaldo: 'llave de respaldo' };
+
 export async function POST({ request }) {
 	const keys = KEYS();
-	if (!keys.length) error(500, 'Falta OPENAI_API_KEY en .env');
+	if (!keys.length) error(500, 'Falta OPENAI_API_KEY en .env (créala en platform.openai.com/api-keys).');
 
-	const { texto, contexto, perfil, yaExplicados } = (await request.json()) as {
-		texto: string;
+	const entrada = (await request.json().catch(() => null)) as {
+		texto?: string;
 		contexto?: string;
 		perfil?: string;
 		yaExplicados?: string[];
-	};
+	} | null;
+	if (!entrada) error(400, 'La petición a /api/explain no trae un JSON válido.');
+	const { texto, contexto, perfil, yaExplicados } = entrada;
 	if (!texto?.trim()) return json({ conceptos: [] });
 
 	const body = JSON.stringify({
@@ -95,17 +100,19 @@ export async function POST({ request }) {
 			res = await fetch(`${env.OPENAI_BASE_URL || 'https://api.openai.com/v1'}/chat/completions`, {
 				method: 'POST',
 				headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-				body
+				body,
+				signal: AbortSignal.timeout(30_000)
 			});
 		} catch (e) {
 			downUntil.set(via, Date.now() + COOLDOWN_MS);
-			failures.push(`${via}: sin conexión`);
+			failures.push(`${ETIQUETA[via]}: no se pudo conectar con OpenAI: ${causaDeRed(e)}`);
 			continue;
 		}
 
 		if (!res.ok) {
 			const err = await res.json().catch(() => null);
-			const msg = `${via}: OpenAI ${res.status} ${err?.error?.message ?? ''}`.trim();
+			const detalle = err?.error?.message ? ` (${err.error.message})` : '';
+			const msg = `${ETIQUETA[via]}: OpenAI respondió ${res.status}${detalle}. ${pistaHttp(res.status)}`.trim();
 			// Un 400 es culpa de la petición, no de la llave: otra llave no lo arregla.
 			if (res.status === 400) error(502, msg);
 			downUntil.set(via, Date.now() + COOLDOWN_MS);
@@ -114,8 +121,14 @@ export async function POST({ request }) {
 			continue;
 		}
 
+		const data = await res.json().catch(() => null);
+		if (!data) {
+			// Un 200 que no es JSON suele ser un portal de red o un proxy que intercepta la conexión.
+			downUntil.set(via, Date.now() + COOLDOWN_MS);
+			failures.push(`${ETIQUETA[via]}: OpenAI respondió algo que no es JSON (¿proxy o portal de red?)`);
+			continue;
+		}
 		downUntil.delete(via);
-		const data = await res.json();
 		// Se registra apenas responde OpenAI (aunque luego el JSON no se pueda leer): los tokens ya se cobraron.
 		await registrarOpenAI({
 			modelo: data.model ?? (env.EXPLAIN_MODEL || 'gpt-4o-mini'),
@@ -131,5 +144,5 @@ export async function POST({ request }) {
 		}
 	}
 
-	error(502, failures.join(' | '));
+	error(502, `No se pudo obtener la explicación de OpenAI. ${failures.join(' | ')}`);
 }
